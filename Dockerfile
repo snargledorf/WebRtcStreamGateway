@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
 WORKDIR /source
 
 COPY src/WebRtcStreamGateway/WebRtcStreamGateway.csproj src/WebRtcStreamGateway/
@@ -8,7 +8,7 @@ COPY src/WebRtcStreamGateway/ src/WebRtcStreamGateway/
 WORKDIR /source/src/WebRtcStreamGateway
 RUN dotnet publish -c Release -o /app/publish /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0-alpine AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 
