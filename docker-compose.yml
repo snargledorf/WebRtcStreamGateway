@@ -19,7 +19,7 @@ services:
       - go2rtc
 
   go2rtc:
-    image: alexxit/go2rtc:latest
+    image: alexxit/go2rtc:master-hardware
     container_name: go2rtc
     restart: unless-stopped
     ports:
