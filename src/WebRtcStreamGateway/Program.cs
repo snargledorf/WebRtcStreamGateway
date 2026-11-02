@@ -26,7 +26,7 @@ builder.Services.AddCors(options =>
 
 WebApplication app = builder.Build();
 
-app.Use(async (HttpContext context, RequestDelegate next) =>
+app.Use(async (context, next) =>
 {
     try
     {
@@ -35,7 +35,7 @@ app.Use(async (HttpContext context, RequestDelegate next) =>
     catch (Exception ex)
     {
         ILogger logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("GatewaySecurity");
-        logger.LogError(ex, "Unhandled exception during request processing; redacting error details from client response.");
+        logger.LogError(ex, "Unhandled exception during request processing; redacting error details from client response");
 
         if (context.Response.HasStarted)
             throw;
@@ -86,13 +86,13 @@ app.MapGet("/api/snapshot", async (
         ? stream.Trim()
         : (!string.IsNullOrWhiteSpace(src) ? src.Trim() : options.Value.DefaultStream);
 
-    if (snapshotCache.TryGet(targetStream, out byte[]? cachedBytes) && cachedBytes != null)
+    if (snapshotCache.TryGet(targetStream, out byte[]? cachedBytes) && cachedBytes?.Length > 0)
         return Results.File(cachedBytes, "image/jpeg");
 
     try
     {
         byte[] freshBytes = await mediaBackend.CaptureSnapshotAsync(targetStream, cancellationToken);
-        if (freshBytes == null || freshBytes.Length == 0)
+        if (freshBytes.Length == 0)
             return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 
         snapshotCache.Set(targetStream, freshBytes);
@@ -109,7 +109,7 @@ app.MapGet("/api/ice-servers", async (
     CancellationToken cancellationToken) =>
 {
     IReadOnlyList<IceServer> iceServers = await iceServerProvider.GetIceServersAsync(cancellationToken);
-    return Results.Ok(new IceServerResponse(iceServers, false));
+    return Results.Ok(new IceServerResponse(iceServers));
 });
 
 app.MapGet("/api/streams", async (
@@ -137,6 +137,3 @@ app.MapGet("/health", async (
 });
 
 app.Run();
-
-public partial class Program { }
-

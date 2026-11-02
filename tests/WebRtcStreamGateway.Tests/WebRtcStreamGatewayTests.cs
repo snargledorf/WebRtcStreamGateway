@@ -61,7 +61,7 @@ public sealed class StubMediaBackend(
         if (shouldThrow)
             throw new HttpRequestException("Simulated media backend error during negotiation.");
 
-        return Task.FromResult(sdpAnswer ?? new SdpAnswer("v=0\r\no=stub_answer 1 1 IN IP4 127.0.0.1", "answer"));
+        return Task.FromResult(sdpAnswer ?? new SdpAnswer("v=0\r\no=stub_answer 1 1 IN IP4 127.0.0.1"));
     }
 
     public Task<byte[]> CaptureSnapshotAsync(string streamName, CancellationToken cancellationToken = default)
@@ -77,7 +77,7 @@ public sealed class StubMediaBackend(
         if (shouldThrow)
             throw new HttpRequestException("Simulated media backend error during stream listing.");
 
-        return Task.FromResult<IReadOnlyList<string>>(streams ?? ["cam1", "cam2"]);
+        return Task.FromResult(streams ?? ["cam1", "cam2"]);
     }
 
     public Task<bool> CheckHealthAsync(CancellationToken cancellationToken = default)
@@ -120,8 +120,8 @@ public sealed class CustomGatewayFactory(
             if (iceServerDescriptor != null)
                 services.Remove(iceServerDescriptor);
 
-            services.AddSingleton<IMediaBackend>(mediaBackend ?? new StubMediaBackend());
-            services.AddSingleton<IIceServerProvider>(iceServerProvider ?? new StubIceServerProvider());
+            services.AddSingleton(mediaBackend ?? new StubMediaBackend());
+            services.AddSingleton(iceServerProvider ?? new StubIceServerProvider());
 
             if (configureCloudflare != null)
                 services.Configure(configureCloudflare);
@@ -319,7 +319,7 @@ public sealed class CloudflareTurnProviderTests
         }
         """;
 
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.OK)
             {
@@ -363,7 +363,7 @@ public sealed class CloudflareTurnProviderTests
         FakeTimeProvider timeProvider = new(baseTime);
 
         int invocation = 0;
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             invocation++;
             string json = $$"""
@@ -422,7 +422,7 @@ public sealed class CloudflareTurnProviderTests
         }
         """;
 
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.OK)
             {
@@ -468,7 +468,7 @@ public sealed class CloudflareTurnProviderTests
         }
         """;
 
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.OK)
             {
@@ -510,7 +510,7 @@ public sealed class CloudflareTurnProviderTests
         }
         """;
 
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.OK)
             {
@@ -550,7 +550,7 @@ public sealed class CloudflareTurnProviderTests
         }
         """;
 
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.OK)
             {
@@ -581,7 +581,7 @@ public sealed class CloudflareTurnProviderTests
     [Fact]
     public async Task GetIceServersAsync_FallsBackGracefully_OnHttpErrorStatuses()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.InternalServerError)
             {
@@ -610,7 +610,7 @@ public sealed class CloudflareTurnProviderTests
     [Fact]
     public async Task GetIceServersAsync_FallsBackToDefaultStun_WhenNoFallbackConfiguredAndApiFails()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.Unauthorized);
             return Task.FromResult(response);
@@ -636,7 +636,7 @@ public sealed class CloudflareTurnProviderTests
     [Fact]
     public async Task GetIceServersAsync_FallsBackGracefully_OnNetworkException()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             throw new HttpRequestException("Simulated connection timeout.");
         });
@@ -661,7 +661,7 @@ public sealed class CloudflareTurnProviderTests
     [Fact]
     public async Task GetIceServersAsync_ReturnsFallback_WhenDisabled()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             throw new InvalidOperationException("Upstream HTTP call should never be made when disabled.");
         });
@@ -687,7 +687,7 @@ public sealed class CloudflareTurnProviderTests
     [Fact]
     public async Task GetIceServersAsync_ReturnsFallback_WhenCredentialsUnconfigured()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             throw new InvalidOperationException("Upstream HTTP call should never be made without credentials.");
         });
@@ -723,7 +723,7 @@ public sealed class Go2RtcBackendTests
         string offerSdp = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=test";
         string answerSdp = "v=0\r\no=- 2 2 IN IP4 127.0.0.1\r\ns=answer";
 
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((request, _) =>
         {
             Assert.Equal(HttpMethod.Post, request.Method);
             Assert.Equal(expectedUrl, request.RequestUri?.ToString());
@@ -762,7 +762,7 @@ public sealed class Go2RtcBackendTests
         }
         """;
 
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.OK)
             {
@@ -789,7 +789,7 @@ public sealed class Go2RtcBackendTests
     [Fact]
     public async Task NegotiateOfferAsync_UsesDefaultStream_WhenStreamNameIsEmpty()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((request, _) =>
         {
             Assert.Equal("http://localhost:1984/api/webrtc?src=octocamrtc", request.RequestUri?.ToString());
 
@@ -817,7 +817,7 @@ public sealed class Go2RtcBackendTests
     [Fact]
     public async Task NegotiateOfferAsync_ThrowsHttpRequestException_OnUpstreamHttpError()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.InternalServerError)
             {
@@ -843,7 +843,7 @@ public sealed class Go2RtcBackendTests
     {
         byte[] expectedBytes = [0xFF, 0xD8, 0xFF, 0xE0, 0x01, 0x02];
 
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((request, _) =>
         {
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal("http://localhost:1984/api/frame.jpeg?src=cam1", request.RequestUri?.ToString());
@@ -873,7 +873,7 @@ public sealed class Go2RtcBackendTests
     [Fact]
     public async Task CaptureSnapshotAsync_ThrowsHttpRequestException_OnHttpError()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.NotFound)
             {
@@ -905,7 +905,7 @@ public sealed class Go2RtcBackendTests
         }
         """;
 
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((request, _) =>
         {
             Assert.Equal("http://localhost:1984/api/streams", request.RequestUri?.ToString());
 
@@ -936,7 +936,7 @@ public sealed class Go2RtcBackendTests
     [Fact]
     public async Task GetAvailableStreamsAsync_ReturnsEmptyList_OnHttpErrorOrException()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.InternalServerError);
             return Task.FromResult(response);
@@ -959,7 +959,7 @@ public sealed class Go2RtcBackendTests
     [Fact]
     public async Task CheckHealthAsync_ReturnsTrue_OnSuccess()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.OK);
             return Task.FromResult(response);
@@ -981,7 +981,7 @@ public sealed class Go2RtcBackendTests
     [Fact]
     public async Task CheckHealthAsync_ReturnsFalse_OnFailure()
     {
-        MockHttpMessageHandler mockHandler = new((request, token) =>
+        MockHttpMessageHandler mockHandler = new((_, _) =>
         {
             HttpResponseMessage response = new(HttpStatusCode.BadGateway);
             return Task.FromResult(response);
@@ -1026,7 +1026,7 @@ public sealed class GatewayApiIntegrationTests
         using HttpResponseMessage response = await client.GetAsync("/health");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        GatewayHealth? health = await response.Content.ReadFromJsonAsync<GatewayHealth>(JsonOptions);
+        var health = await response.Content.ReadFromJsonAsync<GatewayHealth>(JsonOptions);
         Assert.NotNull(health);
         Assert.Equal("Healthy", health.Status);
         Assert.True(health.BackendReachable);
@@ -1110,7 +1110,7 @@ public sealed class GatewayApiIntegrationTests
     [Fact]
     public async Task PostWebRtc_Returns200AndSdpAnswer_OnValidOffer()
     {
-        StubMediaBackend mediaBackend = new(sdpAnswer: new SdpAnswer("v=0\r\no=negotiated_answer", "answer"));
+        StubMediaBackend mediaBackend = new(sdpAnswer: new SdpAnswer("v=0\r\no=negotiated_answer"));
         CustomGatewayFactory factory = new(mediaBackend: mediaBackend);
 
         using HttpClient client = factory.CreateClient();
