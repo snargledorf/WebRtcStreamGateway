@@ -9,8 +9,8 @@ services:
       - "5000:5000"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - Go2Rtc__BaseUrl=http://go2rtc:1984
-      - Go2Rtc__DefaultStream=octocamrtc
+      - Go2Rtc__BaseUrl=${GO2RTC_BASE_URL}
+      - Go2Rtc__DefaultStream=${GO2RTC_DefaultStream:-}
       - Cloudflare__TurnKeyId=${CLOUDFLARE_TURN_KEY_ID:-}
       - Cloudflare__ApiToken=${CLOUDFLARE_API_TOKEN:-}
       - Cloudflare__TtlSeconds=${CLOUDFLARE_TTL_SECONDS:-3600}
