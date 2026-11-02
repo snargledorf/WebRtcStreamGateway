@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Moq;
 using WebRtcStreamGateway.Domain;
 using WebRtcStreamGateway.Infrastructure;
 
@@ -49,83 +50,33 @@ public sealed class MockHttpMessageHandler(
     }
 }
 
-public sealed class StubMediaBackend(
-    IReadOnlyList<string>? streams = null,
-    byte[]? snapshot = null,
-    SdpAnswer? sdpAnswer = null,
-    bool isHealthy = true,
-    bool shouldThrow = false) : IMediaBackend
+static class TestFactory
 {
-    public Task<SdpAnswer> NegotiateOfferAsync(string streamName, string sdpOffer, CancellationToken cancellationToken = default)
+    public static WebApplicationFactory<Program> Create(
+        Mock<IMediaBackend>? mediaBackendMock = null,
+        Mock<IIceServerProvider>? iceServerProviderMock = null,
+        Action<CloudflareOptions>? configureCloudflare = null)
     {
-        if (shouldThrow)
-            throw new HttpRequestException("Simulated media backend error during negotiation.");
+        var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+                builder.ConfigureServices(services =>
+                {
+                    var mediaBackendDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IMediaBackend));
+                    if (mediaBackendDescriptor != null)
+                        services.Remove(mediaBackendDescriptor);
 
-        return Task.FromResult(sdpAnswer ?? new SdpAnswer("v=0\r\no=stub_answer 1 1 IN IP4 127.0.0.1"));
-    }
+                    var iceServerDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IIceServerProvider));
+                    if (iceServerDescriptor != null)
+                        services.Remove(iceServerDescriptor);
 
-    public Task<byte[]> CaptureSnapshotAsync(string streamName, CancellationToken cancellationToken = default)
-    {
-        if (shouldThrow)
-            throw new HttpRequestException("Simulated media backend error during snapshot capture.");
+                    services.AddSingleton(mediaBackendMock?.Object ?? new Mock<IMediaBackend>().Object);
+                    services.AddSingleton(iceServerProviderMock?.Object ?? new Mock<IIceServerProvider>().Object);
 
-        return Task.FromResult(snapshot ?? [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46]);
-    }
+                    if (configureCloudflare != null)
+                        services.Configure(configureCloudflare);
+                }));
 
-    public Task<IReadOnlyList<string>> GetAvailableStreamsAsync(CancellationToken cancellationToken = default)
-    {
-        if (shouldThrow)
-            throw new HttpRequestException("Simulated media backend error during stream listing.");
-
-        return Task.FromResult(streams ?? ["cam1", "cam2"]);
-    }
-
-    public Task<bool> CheckHealthAsync(CancellationToken cancellationToken = default)
-    {
-        if (shouldThrow)
-            return Task.FromResult(false);
-
-        return Task.FromResult(isHealthy);
-    }
-}
-
-public sealed class StubIceServerProvider(IReadOnlyList<IceServer>? iceServers = null) : IIceServerProvider
-{
-    public Task<IReadOnlyList<IceServer>> GetIceServersAsync(CancellationToken cancellationToken = default)
-    {
-        IReadOnlyList<IceServer> list = iceServers ??
-        [
-            new IceServer(["stun:stun.cloudflare.com:3478"]),
-            new IceServer(["turn:turn.cloudflare.com:3478?transport=udp"], "ephemeral_user", "ephemeral_pass")
-        ];
-
-        return Task.FromResult(list);
-    }
-}
-
-public sealed class CustomGatewayFactory(
-    IMediaBackend? mediaBackend = null,
-    IIceServerProvider? iceServerProvider = null,
-    Action<CloudflareOptions>? configureCloudflare = null) : WebApplicationFactory<Program>
-{
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.ConfigureServices(services =>
-        {
-            ServiceDescriptor? mediaBackendDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IMediaBackend));
-            if (mediaBackendDescriptor != null)
-                services.Remove(mediaBackendDescriptor);
-
-            ServiceDescriptor? iceServerDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IIceServerProvider));
-            if (iceServerDescriptor != null)
-                services.Remove(iceServerDescriptor);
-
-            services.AddSingleton(mediaBackend ?? new StubMediaBackend());
-            services.AddSingleton(iceServerProvider ?? new StubIceServerProvider());
-
-            if (configureCloudflare != null)
-                services.Configure(configureCloudflare);
-        });
+        return factory;
     }
 }
 
@@ -1012,9 +963,11 @@ public sealed class GatewayApiIntegrationTests
     [Fact]
     public async Task GetHealth_Returns200AndHealthyStatus_WhenBackendReachable()
     {
-        StubMediaBackend mediaBackend = new(isHealthy: true);
-        CustomGatewayFactory factory = new(
-            mediaBackend: mediaBackend,
+        var mediaBackend = new Mock<IMediaBackend>();
+        mediaBackend.Setup(x => x.CheckHealthAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var factory = TestFactory.Create(
+            mediaBackendMock: mediaBackend,
             configureCloudflare: opt =>
             {
                 opt.TurnKeyId = "test-key-id";
@@ -1036,8 +989,10 @@ public sealed class GatewayApiIntegrationTests
     [Fact]
     public async Task GetHealth_Returns200AndDegradedStatus_WhenBackendUnreachable()
     {
-        StubMediaBackend mediaBackend = new(isHealthy: false);
-        CustomGatewayFactory factory = new(mediaBackend: mediaBackend);
+        var mediaBackend = new Mock<IMediaBackend>();
+        mediaBackend.Setup(x => x.CheckHealthAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+        var factory = TestFactory.Create(mediaBackendMock: mediaBackend);
 
         using HttpClient client = factory.CreateClient();
 
@@ -1053,8 +1008,11 @@ public sealed class GatewayApiIntegrationTests
     [Fact]
     public async Task GetStreams_Returns200AndStreamsResponse()
     {
-        StubMediaBackend mediaBackend = new(streams: ["cam_alpha", "cam_beta"]);
-        CustomGatewayFactory factory = new(mediaBackend: mediaBackend);
+        var mediaBackend = new Mock<IMediaBackend>();
+        mediaBackend.Setup(x => x.GetAvailableStreamsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { "cam_alpha", "cam_beta" });
+
+        var factory = TestFactory.Create(mediaBackendMock: mediaBackend);
 
         using HttpClient client = factory.CreateClient();
 
@@ -1075,13 +1033,16 @@ public sealed class GatewayApiIntegrationTests
         string secretKeyId = "SECRET_MASTER_KEY_ID_DO_NOT_LEAK";
         string secretToken = "SECRET_MASTER_API_TOKEN_DO_NOT_LEAK";
 
-        StubIceServerProvider iceProvider = new([
-            new IceServer(["stun:stun.cloudflare.com:3478"]),
-            new IceServer(["turn:turn.cloudflare.com:3478?transport=udp"], "ephemeral_user", "ephemeral_pass")
-        ]);
+        var iceProvider = new Mock<IIceServerProvider>();
+        iceProvider.Setup(x => x.GetIceServersAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new IceServer(["stun:stun.cloudflare.com:3478"]),
+                new IceServer(["turn:turn.cloudflare.com:3478?transport=udp"], "ephemeral_user", "ephemeral_pass")
+            });
 
-        CustomGatewayFactory factory = new(
-            iceServerProvider: iceProvider,
+        var factory = TestFactory.Create(
+            iceServerProviderMock: iceProvider,
             configureCloudflare: opt =>
             {
                 opt.TurnKeyId = secretKeyId;
@@ -1110,8 +1071,11 @@ public sealed class GatewayApiIntegrationTests
     [Fact]
     public async Task PostWebRtc_Returns200AndSdpAnswer_OnValidOffer()
     {
-        StubMediaBackend mediaBackend = new(sdpAnswer: new SdpAnswer("v=0\r\no=negotiated_answer"));
-        CustomGatewayFactory factory = new(mediaBackend: mediaBackend);
+        var mediaBackend = new Mock<IMediaBackend>();
+        mediaBackend.Setup(x => x.NegotiateOfferAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SdpAnswer("v=0\r\no=negotiated_answer"));
+
+        var factory = TestFactory.Create(mediaBackendMock: mediaBackend);
 
         using HttpClient client = factory.CreateClient();
 
@@ -1128,7 +1092,7 @@ public sealed class GatewayApiIntegrationTests
     [Fact]
     public async Task PostWebRtc_Returns400BadRequest_WhenOfferSdpIsEmptyOrWhitespace()
     {
-        CustomGatewayFactory factory = new();
+        var factory = TestFactory.Create();
         using HttpClient client = factory.CreateClient();
 
         WebRtcOfferRequest emptyPayload = new("", "offer", "cam1");
@@ -1143,8 +1107,11 @@ public sealed class GatewayApiIntegrationTests
     [Fact]
     public async Task PostWebRtc_Returns502BadGateway_WhenBackendFails()
     {
-        StubMediaBackend mediaBackend = new(shouldThrow: true);
-        CustomGatewayFactory factory = new(mediaBackend: mediaBackend);
+        var mediaBackend = new Mock<IMediaBackend>();
+        mediaBackend.Setup(x => x.NegotiateOfferAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("Simulated media backend error during negotiation."));
+
+        var factory = TestFactory.Create(mediaBackendMock: mediaBackend);
 
         using HttpClient client = factory.CreateClient();
 
@@ -1158,8 +1125,11 @@ public sealed class GatewayApiIntegrationTests
     public async Task GetSnapshot_Returns200AndJpegImage_OnSuccess()
     {
         byte[] expectedJpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46];
-        StubMediaBackend mediaBackend = new(snapshot: expectedJpeg);
-        CustomGatewayFactory factory = new(mediaBackend: mediaBackend);
+        var mediaBackend = new Mock<IMediaBackend>();
+        mediaBackend.Setup(x => x.CaptureSnapshotAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedJpeg);
+
+        var factory = TestFactory.Create(mediaBackendMock: mediaBackend);
 
         using HttpClient client = factory.CreateClient();
 
@@ -1175,8 +1145,11 @@ public sealed class GatewayApiIntegrationTests
     public async Task GetSnapshot_SupportsSrcQueryParameter()
     {
         byte[] expectedJpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
-        StubMediaBackend mediaBackend = new(snapshot: expectedJpeg);
-        CustomGatewayFactory factory = new(mediaBackend: mediaBackend);
+        var mediaBackend = new Mock<IMediaBackend>();
+        mediaBackend.Setup(x => x.CaptureSnapshotAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedJpeg);
+
+        var factory = TestFactory.Create(mediaBackendMock: mediaBackend);
 
         using HttpClient client = factory.CreateClient();
 
@@ -1189,8 +1162,11 @@ public sealed class GatewayApiIntegrationTests
     [Fact]
     public async Task GetSnapshot_Returns503_WhenBackendFails()
     {
-        StubMediaBackend mediaBackend = new(shouldThrow: true);
-        CustomGatewayFactory factory = new(mediaBackend: mediaBackend);
+        var mediaBackend = new Mock<IMediaBackend>();
+        mediaBackend.Setup(x => x.CaptureSnapshotAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("Simulated media backend error during snapshot capture."));
+
+        var factory = TestFactory.Create(mediaBackendMock: mediaBackend);
 
         using HttpClient client = factory.CreateClient();
 
@@ -1202,7 +1178,7 @@ public sealed class GatewayApiIntegrationTests
     [Fact]
     public async Task CorsHeaders_ArePresent_OnApiEndpoints()
     {
-        CustomGatewayFactory factory = new();
+        var factory = TestFactory.Create();
         using HttpClient client = factory.CreateClient();
 
         using HttpRequestMessage request = new(HttpMethod.Get, "/api/streams");
