@@ -19,9 +19,15 @@ A lightweight, high-performance ASP.NET Core gateway and reverse proxy designed 
   - [2. Standalone Docker Container](#2-standalone-docker-container)
   - [3. Local .NET CLI / Development](#3-local-net-cli--development)
 - [Client Integration Guide](#client-integration-guide)
-  - [WebRTC Video Streaming in Browser](#webrtc-video-streaming-in-browser)
+  - [Option 1: Zero-JS iFrame Embed (Recommended)](#option-1-zero-js-iframe-embed-recommended)
+  - [Option 2: `<webrtc-stream>` Web Component](#option-2-webrtc-stream-web-component)
+  - [Option 3: JavaScript SDK (`WebRtcStreamPlayer`)](#option-3-javascript-sdk-webrtcstreamplayer)
+  - [Option 4: Interactive Developer Portal & Playground](#option-4-interactive-developer-portal--playground)
+  - [Option 5: Low-Level Vanilla WebRTC API](#option-5-low-level-vanilla-webrtc-api)
   - [Poster & Snapshot Integration](#poster--snapshot-integration)
 - [API Reference](#api-reference)
+  - [GET /embed](#get-embed)
+  - [GET /webrtc-stream.js](#get-webrtc-streamjs)
   - [POST /api/webrtc](#post-apiwebrtc)
   - [GET /api/snapshot](#get-apisnapshot)
   - [GET /api/ice-servers](#get-apiice-servers)
@@ -36,6 +42,7 @@ A lightweight, high-performance ASP.NET Core gateway and reverse proxy designed 
 ## Features
 
 - **WebRTC SDP Offer/Answer Negotiation**: Proxies WebRTC session descriptions directly to `go2rtc`, enabling low-latency video feeds (RTSP, H.264, H.265) in modern browsers.
+- **Drop-In Client Integration**: Zero-boilerplate integration options including a hosted `<iframe>` player (`/embed`), autonomous `<webrtc-stream>` Web Component, and programmatic JavaScript SDK (`webrtc-stream.js`).
 - **Dynamic Cloudflare Calls TURN Integration**: Generates short-lived, ephemeral STUN/TURN credentials using the Cloudflare Calls TURN API with automatic cache invalidation and fallback to configured static STUN/TURN servers.
 - **Snapshot Extraction & Caching**: Serves live JPEG frames on demand with thread-safe, in-memory caching to minimize strain on underlying camera hardware and `go2rtc`.
 - **Stream Discovery**: Exposes active streams discovered from `go2rtc` alongside configured default stream names.
@@ -212,9 +219,155 @@ To develop or debug locally:
 
 ## Client Integration Guide
 
-### WebRTC Video Streaming in Browser
+`WebRtcStreamGateway` provides multiple client integration tiers ranging from a 1-line zero-JavaScript `<iframe>` embed to direct DOM Web Components and low-level WebRTC APIs.
 
-Below is a complete vanilla JavaScript example showing how to connect to the gateway and display a live stream in an HTML `<video>` element:
+---
+
+### Option 1: Zero-JS iFrame Embed (Recommended)
+
+The easiest way to integrate a live stream into any web application, dashboard, or CMS without writing or bundling any JavaScript. The gateway hosts a fully responsive player complete with poster fallback, live connection status badges, controls, error recovery, and auto-reconnection:
+
+```html
+<iframe
+  src="http://localhost:5000/embed?stream=octocamrtc"
+  width="640"
+  height="360"
+  allow="autoplay; fullscreen"
+  style="border: 0; border-radius: 8px; overflow: hidden;"
+  loading="lazy">
+</iframe>
+```
+
+#### Query Parameters
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `stream` | `string` | Configured default | Target stream name registered in `go2rtc`. |
+| `autoplay` | `boolean` | `true` | Automatically starts playback on load. |
+| `muted` | `boolean` | `true` | Mutes audio (required by modern browsers for unprompted autoplay). |
+| `controls` | `boolean` | `true` | Displays player controls bar (play/pause, mute, snapshot, fullscreen). |
+| `poster` | `boolean` | `true` | Shows live cached snapshot from `/api/snapshot` while connecting. |
+| `fit` | `contain \| cover` | `contain` | CSS `object-fit` mode for video stream. |
+| `reconnect` | `boolean` | `true` | Automatically attempts exponential backoff reconnection on disconnection. |
+| `gateway` | `string` | Same-origin | Base URL of the gateway (if hosting the iframe page from a different domain). |
+
+#### Parent Window `postMessage` API
+
+The embedded iframe communicates bidirectionally with the host page via standard `window.postMessage`:
+
+```javascript
+const iframe = document.querySelector('iframe');
+
+// Send commands to player
+iframe.contentWindow.postMessage({ action: 'play' }, '*');
+iframe.contentWindow.postMessage({ action: 'pause' }, '*');
+iframe.contentWindow.postMessage({ action: 'reconnect' }, '*');
+iframe.contentWindow.postMessage({ action: 'setStream', stream: 'front_door' }, '*');
+iframe.contentWindow.postMessage({ action: 'mute' }, '*');
+iframe.contentWindow.postMessage({ action: 'unmute' }, '*');
+
+// Listen to player events from iframe
+window.addEventListener('message', (event) => {
+  if (event.data?.source === 'webrtc-stream-gateway') {
+    console.log('Player event:', event.data.event, event.data);
+  }
+});
+```
+
+---
+
+### Option 2: `<webrtc-stream>` Web Component
+
+If you want the video element integrated directly into your DOM (e.g. inside a React, Vue, Angular, or standard HTML app) without an iframe, include the lightweight drop-in script:
+
+```html
+<!-- 1. Include script once -->
+<script src="http://localhost:5000/webrtc-stream.js"></script>
+
+<!-- 2. Drop the custom element anywhere in your layout -->
+<webrtc-stream
+  gateway="http://localhost:5000"
+  stream="octocamrtc"
+  autoplay
+  muted
+  controls
+  poster>
+</webrtc-stream>
+```
+
+#### Custom Element Methods & Events
+
+The `<webrtc-stream>` element utilizes Shadow DOM for style isolation and exposes DOM properties and methods:
+
+```javascript
+const playerEl = document.querySelector('webrtc-stream');
+
+// Methods
+playerEl.play();
+playerEl.pause();
+playerEl.reconnect();
+playerEl.captureSnapshot(); // Returns Promise<Blob>
+
+// Events
+playerEl.addEventListener('webrtc:connected', (e) => console.log('Stream connected:', e.detail.stream));
+playerEl.addEventListener('webrtc:disconnected', () => console.log('Stream disconnected'));
+playerEl.addEventListener('webrtc:error', (e) => console.error('Stream error:', e.detail));
+playerEl.addEventListener('webrtc:statuschange', (e) => console.log('Status changed:', e.detail.status));
+```
+
+---
+
+### Option 3: JavaScript SDK (`WebRtcStreamPlayer`)
+
+For custom user interfaces or single-page apps wanting programmatic control without the WebRTC boilerplate:
+
+```html
+<script src="http://localhost:5000/webrtc-stream.js"></script>
+
+<video id="myVideo" autoplay playsinline muted></video>
+
+<script>
+  const player = new WebRtcStreamPlayer({
+    gatewayUrl: 'http://localhost:5000',
+    stream: 'octocamrtc',
+    videoElement: document.getElementById('myVideo'),
+    autoplay: true,
+    muted: true,
+    autoReconnect: true,
+    onStatusChange: (status, detail) => console.log('Status:', status, detail),
+    onError: (err) => console.error('Stream error:', err)
+  });
+
+  player.start();
+</script>
+```
+
+Or with modern ES Modules:
+```javascript
+import { WebRtcStreamPlayer } from 'http://localhost:5000/webrtc-stream.esm.js';
+```
+
+---
+
+### Option 4: Interactive Developer Portal & Playground
+
+Visit the root URL of the running gateway in your browser:
+
+```text
+http://localhost:5000/
+```
+
+The portal provides:
+- Live streaming player preview
+- Real-time gateway and backend health monitor
+- Stream switcher populated dynamically from `/api/streams`
+- Visual code generator with one-click copyable snippets for `<iframe>`, `<webrtc-stream>`, and the JavaScript SDK.
+
+---
+
+### Option 5: Low-Level Vanilla WebRTC API
+
+Below is a complete vanilla JavaScript example showing how to connect to the gateway and display a live stream in an HTML `<video>` element using raw browser WebRTC APIs:
 
 ```html
 <!DOCTYPE html>
@@ -315,6 +468,32 @@ Snapshots are automatically cached in memory according to `SnapshotCache:Default
 ---
 
 ## API Reference
+
+### GET /embed
+
+Serves the standalone, embeddable HTML5 WebRTC stream player designed for `<iframe>` embedding or full-window viewing.
+
+- **Query Parameters**:
+  - `stream` *(string, optional)*: Stream name to play. Defaults to the gateway's configured default stream.
+  - `autoplay` *(boolean, optional, default: `true`)*: Whether to begin playback automatically.
+  - `muted` *(boolean, optional, default: `true`)*: Whether audio is muted by default.
+  - `controls` *(boolean, optional, default: `true`)*: Whether to render player controls overlay.
+  - `poster` *(boolean, optional, default: `true`)*: Whether to render snapshot poster while connecting.
+  - `fit` *(string, optional, default: `contain`)*: Video object-fit mode (`contain` or `cover`).
+  - `reconnect` *(boolean, optional, default: `true`)*: Whether to automatically reconnect with exponential backoff on connection drop.
+- **Responses**:
+  - `200 OK`: `text/html; charset=utf-8`
+
+---
+
+### GET /webrtc-stream.js
+
+Serves the drop-in client library and autonomous `<webrtc-stream>` Web Component.
+
+- **Responses**:
+  - `200 OK`: `application/javascript; charset=utf-8`
+
+---
 
 ### POST /api/webrtc
 

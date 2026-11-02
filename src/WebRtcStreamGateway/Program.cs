@@ -49,6 +49,53 @@ app.Use(async (context, next) =>
 });
 
 app.UseCors();
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+app.MapGet("/", () =>
+{
+    byte[]? bytes = ClientAssetProvider.GetAssetBytes("index.html");
+    if (bytes == null)
+        return Results.NotFound();
+
+    return Results.File(bytes, ClientAssetProvider.GetContentType("index.html"));
+});
+
+app.MapGet("/embed", () =>
+{
+    byte[]? bytes = ClientAssetProvider.GetAssetBytes("embed.html");
+    if (bytes == null)
+        return Results.NotFound();
+
+    return Results.File(bytes, ClientAssetProvider.GetContentType("embed.html"));
+});
+
+app.MapGet("/embed.html", () =>
+{
+    byte[]? bytes = ClientAssetProvider.GetAssetBytes("embed.html");
+    if (bytes == null)
+        return Results.NotFound();
+
+    return Results.File(bytes, ClientAssetProvider.GetContentType("embed.html"));
+});
+
+app.MapGet("/webrtc-stream.js", () =>
+{
+    byte[]? bytes = ClientAssetProvider.GetAssetBytes("webrtc-stream.js");
+    if (bytes == null)
+        return Results.NotFound();
+
+    return Results.File(bytes, ClientAssetProvider.GetContentType("webrtc-stream.js"));
+});
+
+app.MapGet("/webrtc-stream.esm.js", () =>
+{
+    byte[]? bytes = ClientAssetProvider.GetAssetBytes("webrtc-stream.esm.js");
+    if (bytes == null)
+        return Results.NotFound();
+
+    return Results.File(bytes, ClientAssetProvider.GetContentType("webrtc-stream.esm.js"));
+});
 
 app.MapPost("/api/webrtc", async (
     [FromBody] WebRtcOfferRequest? request,

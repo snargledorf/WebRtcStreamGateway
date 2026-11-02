@@ -1194,3 +1194,131 @@ public sealed class GatewayApiIntegrationTests
 }
 
 #endregion
+
+#region ClientIntegrationTests
+
+public sealed class ClientIntegrationTests
+{
+    [Fact]
+    public async Task GetEmbed_ReturnsHtmlAnd200Ok()
+    {
+        using WebApplicationFactory<Program> factory = TestFactory.Create();
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response = await client.GetAsync("/embed");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+        string content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("<webrtc-stream", content);
+        Assert.Contains("/webrtc-stream.js", content);
+        Assert.Contains("postMessage", content);
+    }
+
+    [Fact]
+    public async Task GetEmbedHtml_ReturnsHtmlAnd200Ok()
+    {
+        using WebApplicationFactory<Program> factory = TestFactory.Create();
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response = await client.GetAsync("/embed.html");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+        string content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("<webrtc-stream", content);
+    }
+
+    [Fact]
+    public async Task GetWebrtcStreamJs_ReturnsJavascriptAnd200Ok()
+    {
+        using WebApplicationFactory<Program> factory = TestFactory.Create();
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response = await client.GetAsync("/webrtc-stream.js");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/javascript", response.Content.Headers.ContentType?.MediaType);
+        string content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("class WebRtcStreamPlayer", content);
+        Assert.Contains("class WebRtcStreamElement", content);
+        Assert.Contains("customElements.define('webrtc-stream'", content);
+    }
+
+    [Fact]
+    public async Task GetWebrtcStreamEsmJs_ReturnsJavascriptAnd200Ok()
+    {
+        using WebApplicationFactory<Program> factory = TestFactory.Create();
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response = await client.GetAsync("/webrtc-stream.esm.js");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/javascript", response.Content.Headers.ContentType?.MediaType);
+        string content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("export const WebRtcStreamPlayer", content);
+    }
+
+    [Fact]
+    public async Task GetRoot_ReturnsHtmlAnd200Ok()
+    {
+        using WebApplicationFactory<Program> factory = TestFactory.Create();
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response = await client.GetAsync("/");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+        string content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("WebRtcStreamGateway", content);
+        Assert.Contains("Live Stream Preview", content);
+    }
+
+    [Theory]
+    [InlineData("embed.html", "text/html; charset=utf-8")]
+    [InlineData("webrtc-stream.js", "application/javascript; charset=utf-8")]
+    [InlineData("webrtc-stream.esm.js", "application/javascript; charset=utf-8")]
+    [InlineData("index.html", "text/html; charset=utf-8")]
+    public void ClientAssetProvider_ResolvesValidAssets(string fileName, string expectedContentType)
+    {
+        byte[]? assetBytes = ClientAssetProvider.GetAssetBytes(fileName);
+        string contentType = ClientAssetProvider.GetContentType(fileName);
+
+        Assert.NotNull(assetBytes);
+        Assert.True(assetBytes.Length > 0);
+        Assert.Equal(expectedContentType, contentType);
+    }
+
+    [Fact]
+    public void ClientAssetProvider_ReturnsNull_ForNonExistentAsset()
+    {
+        byte[]? assetBytes = ClientAssetProvider.GetAssetBytes("does-not-exist.xyz");
+        Assert.Null(assetBytes);
+    }
+
+    [Fact]
+    public void ClientAssetProvider_ReturnsNull_ForEmptyFileName()
+    {
+        byte[]? assetBytes = ClientAssetProvider.GetAssetBytes(string.Empty);
+        Assert.Null(assetBytes);
+    }
+
+    [Fact]
+    public async Task WebrtcStreamJs_SupportsCorsFromAnyOrigin()
+    {
+        using WebApplicationFactory<Program> factory = TestFactory.Create();
+        using HttpClient client = factory.CreateClient();
+
+        using HttpRequestMessage request = new(HttpMethod.Get, "/webrtc-stream.js");
+        request.Headers.Add("Origin", "https://client-consumer-app.com");
+
+        using HttpResponseMessage response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.Contains("Access-Control-Allow-Origin"));
+        IEnumerable<string> corsValues = response.Headers.GetValues("Access-Control-Allow-Origin");
+        Assert.Contains("*", corsValues);
+    }
+}
+
+#endregion

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>WebRTC Stream Player</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0b0f19;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    #streamPlayer {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+  <script src="/webrtc-stream.js"></script>
+</head>
+<body>
+  <webrtc-stream id="streamPlayer"></webrtc-stream>
+
+  <script>
+    (function () {
+      const urlParams = new URLSearchParams(window.location.search);
+      const player = document.getElementById('streamPlayer');
+
+      // Configure attributes from query params
+      const stream = urlParams.get('stream') || urlParams.get('src');
+      if (stream) player.setAttribute('stream', stream);
+
+      const gateway = urlParams.get('gateway');
+      if (gateway) player.setAttribute('gateway', gateway);
+
+      const autoplay = urlParams.get('autoplay');
+      if (autoplay !== null) player.setAttribute('autoplay', autoplay !== '0' && autoplay !== 'false');
+
+      const muted = urlParams.get('muted');
+      if (muted !== null) player.setAttribute('muted', muted !== '0' && muted !== 'false');
+
+      const controls = urlParams.get('controls');
+      if (controls !== null) player.setAttribute('controls', controls !== '0' && controls !== 'false');
+
+      const poster = urlParams.get('poster');
+      if (poster !== null) player.setAttribute('poster', poster !== '0' && poster !== 'false');
+
+      const fit = urlParams.get('fit');
+      if (fit) player.setAttribute('fit', fit);
+
+      const reconnect = urlParams.get('reconnect');
+      if (reconnect !== null) player.setAttribute('reconnect', reconnect !== '0' && reconnect !== 'false');
+
+      // Forward WebRTC player events to parent window via postMessage
+      function notifyParent(eventType, data = {}) {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({
+            source: 'webrtc-stream-gateway',
+            event: eventType,
+            ...data
+          }, '*');
+        }
+      }
+
+      player.addEventListener('webrtc:statuschange', (e) => {
+        notifyParent('statuschange', e.detail);
+      });
+
+      player.addEventListener('webrtc:connected', (e) => {
+        notifyParent('connected', e.detail);
+      });
+
+      player.addEventListener('webrtc:disconnected', (e) => {
+        notifyParent('disconnected', e.detail);
+      });
+
+      player.addEventListener('webrtc:error', (e) => {
+        notifyParent('error', e.detail);
+      });
+
+      // Handle incoming postMessages from parent window
+      window.addEventListener('message', (event) => {
+        const data = event.data;
+        if (!data) return;
+
+        const action = data.action || data.command;
+        switch (action) {
+          case 'play':
+            player.play();
+            break;
+          case 'pause':
+            player.pause();
+            break;
+          case 'reconnect':
+          case 'reload':
+            player.reconnect();
+            break;
+          case 'setStream':
+            if (data.stream) player.setAttribute('stream', data.stream);
+            break;
+          case 'mute':
+            player.setAttribute('muted', 'true');
+            break;
+          case 'unmute':
+            player.setAttribute('muted', 'false');
+            break;
+          case 'snapshot':
+            player.captureSnapshot().then((blob) => {
+              notifyParent('snapshot-ready', { size: blob.size });
+            }).catch((err) => {
+              notifyParent('snapshot-error', { error: err.message });
+            });
+            break;
+        }
+      });
+
+      notifyParent('ready', { stream: stream || null });
+    })();
+  </script>
+</body>
+</html>
